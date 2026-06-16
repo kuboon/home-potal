@@ -14,6 +14,7 @@ import {
   listMessages,
   listThreads,
   postMessage,
+  repostMessage,
 } from "./threads.ts";
 
 if (!Deno.env.get("TURSO_DATABASE_URL")) {
@@ -83,6 +84,51 @@ Deno.test("edit updates body + marks edited; delete leaves a tombstone", async (
   assertEquals(after.length, 1); // tombstone remains
   assertEquals(after[0].deleted, true);
   assertEquals(after[0].body, "");
+});
+
+Deno.test("repost references the original and flattens repost-of-repost", async () => {
+  const home = await setup();
+  const t1 = await createThread({
+    homeId: home.id,
+    title: "src",
+    userId: "alice",
+  });
+  const t2 = await createThread({
+    homeId: home.id,
+    title: "dst",
+    userId: "alice",
+  });
+  const original = await postMessage({
+    threadId: t1.id,
+    authorId: "alice",
+    body: "元の投稿",
+  });
+
+  // Repost into t2 with a comment.
+  const repost = await repostMessage({
+    threadId: t2.id,
+    authorId: "alice",
+    sourceMessageId: original.id,
+    body: "これ見て",
+  });
+  assertEquals(repost.repostOf, original.id);
+  assert(repost.repost);
+  assertEquals(repost.repost.body, "元の投稿");
+  assertEquals(repost.body, "これ見て");
+
+  // Repost the repost → flattens to the original, not the repost.
+  const repost2 = await repostMessage({
+    threadId: t2.id,
+    authorId: "alice",
+    sourceMessageId: repost.id,
+  });
+  assertEquals(repost2.repostOf, original.id);
+
+  // When the original is deleted, the repost shows a deleted marker.
+  await deleteMessage(original.id);
+  const msgs = await listMessages(t2.id);
+  const r = msgs.find((m) => m.id === repost.id)!;
+  assertEquals(r.repost?.deleted, true);
 });
 
 Deno.test("empty thread title and message body are rejected", async () => {

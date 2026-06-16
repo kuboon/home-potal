@@ -41,5 +41,7 @@ export {
   MAX_MESSAGE_LENGTH,
   type Message,
   postMessage,
+  repostMessage,
+  type RepostOf,
   type Thread,
 } from "./threads.ts";

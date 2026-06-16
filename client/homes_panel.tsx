@@ -45,6 +45,7 @@ interface Message {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  repost: { authorName: string; body: string; deleted: boolean } | null;
 }
 
 export const HomesPanel = clientEntry(
@@ -236,6 +237,19 @@ export const HomesPanel = clientEntry(
         if (selectedThreadId) await loadMessages(selectedThreadId);
       });
 
+    const onRepost = (sourceMessageId: string) =>
+      run(async () => {
+        if (!selectedThreadId) return;
+        const comment = globalThis.prompt("引用にコメント（任意）", "");
+        if (comment == null) return;
+        await api(`/api/threads/${selectedThreadId}/reposts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceMessageId, body: comment }),
+        });
+        await loadMessages(selectedThreadId);
+      });
+
     const onAddMember = () =>
       run(async () => {
         const uid = addUserId.trim();
@@ -363,35 +377,50 @@ export const HomesPanel = clientEntry(
               ? <span class="text-xs opacity-50 ml-1">(編集済み)</span>
               : null}
           </div>
-          <div class="chat-bubble">{m.body}</div>
-          {mine || canDelete
-            ? (
-              <div class="chat-footer opacity-60">
-                {mine
-                  ? (
-                    <button
-                      type="button"
-                      class="link link-hover text-xs mr-2"
-                      mix={[on("click", () => onEditMessage(m.id, m.body))]}
-                    >
-                      編集
-                    </button>
-                  )
-                  : null}
-                {canDelete
-                  ? (
-                    <button
-                      type="button"
-                      class="link link-hover text-xs"
-                      mix={[on("click", () => onDeleteMessage(m.id))]}
-                    >
-                      削除
-                    </button>
-                  )
-                  : null}
-              </div>
-            )
-            : null}
+          <div class="chat-bubble">
+            {m.repost
+              ? (
+                <div class="border-l-4 border-base-content/20 pl-2 mb-1 text-sm opacity-80">
+                  <span class="font-semibold">{m.repost.authorName}</span>:{" "}
+                  {m.repost.deleted
+                    ? <span class="italic">削除されました</span>
+                    : m.repost.body}
+                </div>
+              )
+              : null}
+            {m.body}
+          </div>
+          <div class="chat-footer opacity-60">
+            <button
+              type="button"
+              class="link link-hover text-xs mr-2"
+              mix={[on("click", () => onRepost(m.id))]}
+            >
+              引用
+            </button>
+            {mine
+              ? (
+                <button
+                  type="button"
+                  class="link link-hover text-xs mr-2"
+                  mix={[on("click", () => onEditMessage(m.id, m.body))]}
+                >
+                  編集
+                </button>
+              )
+              : null}
+            {canDelete
+              ? (
+                <button
+                  type="button"
+                  class="link link-hover text-xs"
+                  mix={[on("click", () => onDeleteMessage(m.id))]}
+                >
+                  削除
+                </button>
+              )
+              : null}
+          </div>
         </div>
       );
     };

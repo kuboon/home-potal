@@ -68,6 +68,7 @@ deno task check     # deno check + lint + fmt --check
 指定)/削除）+ **Thread / Message**（スレッド作成・一覧、メッセージ投稿・表示）+
 **リアルタイム配信**（SSE + Deno KV watch で新着・編集・削除を即時反映）+
 **メッセージ編集・削除**（編集マーク / 論理削除の tombstone、author
-編集・author/admin 削除）まで実装済み。後続で Repost / 招待トークン /
-エージェント・MCP / Web Push 通知 / レート制限 / アーカイブ / CSS テーマ /
-スタンプ を積み上げる。
+編集・author/admin 削除）+
+**Repost**（任意の投稿を引用してスレッドへピックアップ、
+リンク平坦化）まで実装済み。後続で 招待トークン / エージェント・MCP / Web Push
+通知 / レート制限 / アーカイブ / CSS テーマ / スタンプ を積み上げる。

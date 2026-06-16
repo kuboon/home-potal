@@ -18,6 +18,7 @@ import {
   listMessages,
   listThreads,
   postMessage,
+  repostMessage,
 } from "@scope/db";
 import { dpop, DpopSession } from "../../middleware/dpop.ts";
 import { signalThread, watchThread } from "../../realtime.ts";
@@ -96,6 +97,49 @@ export const threadsController = {
           threadId,
           authorId: userId,
           body: body.body ?? "",
+        });
+        await signalThread(threadId);
+        return Response.json({ message }, { status: 201 });
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+
+    async repost(context) {
+      const userId = currentUserId(context.get(DpopSession));
+      if (!userId) return unauthorized();
+      const { threadId } = context.params;
+      const thread = await getThread(threadId);
+      if (!thread) {
+        return Response.json({ error: "not found" }, { status: 404 });
+      }
+      if (!(await getRole(thread.homeId, userId))) return forbidden();
+
+      const body = await context.request.json() as {
+        sourceMessageId?: string;
+        body?: string;
+      };
+      if (!body.sourceMessageId) {
+        return Response.json({ error: "sourceMessageId is required" }, {
+          status: 400,
+        });
+      }
+      // Must be able to see the source (member of its home).
+      const src = await getMessageContext(body.sourceMessageId);
+      if (!src) {
+        return Response.json({ error: "source not found" }, { status: 404 });
+      }
+      if (!(await getRole(src.homeId, userId))) {
+        return Response.json({ error: "cannot access source" }, {
+          status: 403,
+        });
+      }
+      try {
+        const message = await repostMessage({
+          threadId,
+          authorId: userId,
+          sourceMessageId: body.sourceMessageId,
+          body: body.body,
         });
         await signalThread(threadId);
         return Response.json({ message }, { status: 201 });

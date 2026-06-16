@@ -3,7 +3,7 @@
  *
  * Threads live inside a Home; messages live inside a Thread. Membership/role
  * checks are the controller's job — these functions assume the caller is
- * already authorized. `listMessages` returns only live (non-deleted) messages.
+ * already authorized. `listMessages` includes deleted messages as tombstones.
  */
 
 import { monotonicUlid } from "@std/ulid";
@@ -22,6 +22,13 @@ export interface Thread {
   archivedAt: string | null;
 }
 
+/** Summary of the original message a repost references. */
+export interface RepostOf {
+  authorName: string;
+  body: string;
+  deleted: boolean;
+}
+
 export interface Message {
   id: string;
   threadId: string;
@@ -31,6 +38,10 @@ export interface Message {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  /** Id of the original message this reposts, or `null`. */
+  repostOf: string | null;
+  /** The referenced original's summary when this is a repost. */
+  repost: RepostOf | null;
 }
 
 function rowToThread(row: Record<string, unknown>): Thread {
@@ -98,10 +109,17 @@ export async function postMessage(
   return message;
 }
 
+// Shared SELECT: message + author, plus the referenced original (for reposts).
+const MESSAGE_SELECT = "SELECT m.*, u.display_name, " +
+  "o.body AS r_body, o.deleted_at AS r_deleted, ou.display_name AS r_author " +
+  "FROM messages m " +
+  "JOIN users u ON u.id = m.author_id " +
+  "LEFT JOIN messages o ON o.id = m.repost_of " +
+  "LEFT JOIN users ou ON ou.id = o.author_id";
+
 async function getMessage(id: string): Promise<Message | null> {
   const { rows } = await (await db()).execute({
-    sql: "SELECT m.*, u.display_name FROM messages m " +
-      "JOIN users u ON u.id = m.author_id WHERE m.id = ?",
+    sql: `${MESSAGE_SELECT} WHERE m.id = ?`,
     args: [id],
   });
   return rows[0] ? rowToMessage(rows[0]) : null;
@@ -109,6 +127,16 @@ async function getMessage(id: string): Promise<Message | null> {
 
 function rowToMessage(row: Record<string, unknown>): Message {
   const deleted = row.deleted_at != null;
+  const repostOf = row.repost_of == null ? null : String(row.repost_of);
+  let repost: RepostOf | null = null;
+  if (repostOf && row.r_author != null) {
+    const rDeleted = row.r_deleted != null;
+    repost = {
+      authorName: String(row.r_author),
+      body: rDeleted ? "" : String(row.r_body),
+      deleted: rDeleted,
+    };
+  }
   return {
     id: String(row.id),
     threadId: String(row.thread_id),
@@ -119,18 +147,50 @@ function rowToMessage(row: Record<string, unknown>): Message {
     createdAt: String(row.created_at),
     editedAt: row.edited_at == null ? null : String(row.edited_at),
     deleted,
+    repostOf,
+    repost,
   };
 }
 
 /** Messages in a thread, oldest first. Deleted ones remain as tombstones. */
 export async function listMessages(threadId: string): Promise<Message[]> {
   const { rows } = await (await db()).execute({
-    sql: "SELECT m.*, u.display_name FROM messages m " +
-      "JOIN users u ON u.id = m.author_id " +
-      "WHERE m.thread_id = ? ORDER BY m.created_at",
+    sql: `${MESSAGE_SELECT} WHERE m.thread_id = ? ORDER BY m.created_at`,
     args: [threadId],
   });
   return rows.map(rowToMessage);
+}
+
+/**
+ * Repost (pick up) a message into a thread, with an optional comment (`body`).
+ * Link flattening: a repost always references the ORIGINAL, so reposting a
+ * repost copies its `repost_of` rather than pointing at the repost.
+ */
+export async function repostMessage(
+  input: {
+    threadId: string;
+    authorId: string;
+    sourceMessageId: string;
+    body?: string;
+  },
+): Promise<Message> {
+  const source = await getMessage(input.sourceMessageId);
+  if (!source) throw new HomeError("source message not found", 404);
+  const original = source.repostOf ?? source.id;
+
+  const id = monotonicUlid();
+  const body = (input.body ?? "").trim();
+  if (body.length > MAX_MESSAGE_LENGTH) {
+    throw new HomeError(`message too long (max ${MAX_MESSAGE_LENGTH})`);
+  }
+  await (await db()).execute({
+    sql: "INSERT INTO messages (id, thread_id, author_id, body, repost_of) " +
+      "VALUES (?, ?, ?, ?, ?)",
+    args: [id, input.threadId, input.authorId, body, original],
+  });
+  const message = await getMessage(id);
+  if (!message) throw new Error(`repostMessage failed to read back ${id}`);
+  return message;
 }
 
 /** Minimal message info for authorization (who/where), or `null`. */

@@ -34,6 +34,8 @@ export const routes = route({
     messages: get("/threads/:threadId/messages"),
     /** POST /api/threads/:threadId/messages — post a message (members). */
     post: post("/threads/:threadId/messages"),
+    /** POST /api/threads/:threadId/reposts — repost a message here (members). */
+    repost: post("/threads/:threadId/reposts"),
     /** GET /api/threads/:threadId/stream — SSE change pings (members). */
     stream: get("/threads/:threadId/stream"),
     /** POST /api/messages/:messageId — edit a message (author). */
