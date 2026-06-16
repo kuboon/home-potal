@@ -80,13 +80,42 @@ export async function getThread(id: string): Promise<Thread | null> {
   return rows[0] ? rowToThread(rows[0]) : null;
 }
 
-/** Threads in a home, newest first. */
+/** Days of inactivity (no posts) after which a thread auto-archives. */
+export const ARCHIVE_AFTER_DAYS = 7;
+
+/**
+ * Archive threads in a home with no activity for {@link ARCHIVE_AFTER_DAYS}.
+ * "Activity" is the latest message time, or the thread's creation time if it
+ * has none. Run lazily before listing so archiving needs no cron.
+ */
+export async function archiveStaleThreads(homeId: string): Promise<void> {
+  await (await db()).execute({
+    sql: "UPDATE threads SET archived_at = datetime('now') " +
+      "WHERE home_id = ? AND archived_at IS NULL AND id IN (" +
+      "SELECT t.id FROM threads t LEFT JOIN messages m ON m.thread_id = t.id " +
+      "WHERE t.home_id = ? GROUP BY t.id " +
+      `HAVING MAX(COALESCE(m.created_at, t.created_at)) < datetime('now', '-${ARCHIVE_AFTER_DAYS} days'))`,
+    args: [homeId, homeId],
+  });
+}
+
+/** Threads in a home, newest first. Auto-archives stale ones first. */
 export async function listThreads(homeId: string): Promise<Thread[]> {
+  await archiveStaleThreads(homeId);
   const { rows } = await (await db()).execute({
     sql: "SELECT * FROM threads WHERE home_id = ? ORDER BY created_at DESC",
     args: [homeId],
   });
   return rows.map(rowToThread);
+}
+
+/** Throw if the thread is archived (read-only) or missing. */
+async function assertWritable(threadId: string): Promise<void> {
+  const thread = await getThread(threadId);
+  if (!thread) throw new HomeError("thread not found", 404);
+  if (thread.archivedAt) {
+    throw new HomeError("スレッドはアーカイブ済みです", 409);
+  }
 }
 
 export async function postMessage(
@@ -97,6 +126,7 @@ export async function postMessage(
   if (body.length > MAX_MESSAGE_LENGTH) {
     throw new HomeError(`message too long (max ${MAX_MESSAGE_LENGTH})`);
   }
+  await assertWritable(input.threadId);
 
   const id = monotonicUlid();
   await (await db()).execute({
@@ -176,6 +206,7 @@ export async function repostMessage(
 ): Promise<Message> {
   const source = await getMessage(input.sourceMessageId);
   if (!source) throw new HomeError("source message not found", 404);
+  await assertWritable(input.threadId);
   const original = source.repostOf ?? source.id;
 
   const id = monotonicUlid();
@@ -220,6 +251,8 @@ export async function editMessage(
   if (body.length > MAX_MESSAGE_LENGTH) {
     throw new HomeError(`message too long (max ${MAX_MESSAGE_LENGTH})`);
   }
+  const ctx = await getMessageContext(input.messageId);
+  if (ctx) await assertWritable(ctx.threadId);
   const result = await (await db()).execute({
     sql: "UPDATE messages SET body = ?, edited_at = datetime('now') " +
       "WHERE id = ? AND author_id = ? AND deleted_at IS NULL",
@@ -235,6 +268,8 @@ export async function editMessage(
 
 /** Soft-delete a message: clear its body, leave a tombstone. Idempotent. */
 export async function deleteMessage(messageId: string): Promise<void> {
+  const ctx = await getMessageContext(messageId);
+  if (ctx) await assertWritable(ctx.threadId);
   await (await db()).execute({
     sql: "UPDATE messages SET deleted_at = datetime('now'), body = '' " +
       "WHERE id = ? AND deleted_at IS NULL",

@@ -35,6 +35,7 @@ interface Member {
 interface Thread {
   id: string;
   title: string;
+  archivedAt: string | null;
 }
 
 interface Message {
@@ -71,6 +72,8 @@ export const HomesPanel = clientEntry(
     let joinCode = "";
 
     const selectedRole = () => homes.find((h) => h.id === selectedId)?.role;
+    const selectedArchived = () =>
+      !!threads.find((t) => t.id === selectedThreadId)?.archivedAt;
 
     /** Call a DPoP-protected JSON endpoint; throws on non-2xx with its error. */
     const api = async (
@@ -437,14 +440,16 @@ export const HomesPanel = clientEntry(
             {m.body}
           </div>
           <div class="chat-footer opacity-60">
-            <button
-              type="button"
-              class="link link-hover text-xs mr-2"
-              mix={[on("click", () => onRepost(m.id))]}
-            >
-              引用
-            </button>
-            {mine
+            {selectedArchived() ? null : (
+              <button
+                type="button"
+                class="link link-hover text-xs mr-2"
+                mix={[on("click", () => onRepost(m.id))]}
+              >
+                引用
+              </button>
+            )}
+            {!selectedArchived() && mine
               ? (
                 <button
                   type="button"
@@ -455,7 +460,7 @@ export const HomesPanel = clientEntry(
                 </button>
               )
               : null}
-            {canDelete
+            {!selectedArchived() && canDelete
               ? (
                 <button
                   type="button"
@@ -663,6 +668,13 @@ export const HomesPanel = clientEntry(
                                 mix={[on("click", () => onSelectThread(t.id))]}
                               >
                                 {t.title}
+                                {t.archivedAt
+                                  ? (
+                                    <span class="badge badge-sm">
+                                      アーカイブ
+                                    </span>
+                                  )
+                                  : null}
                               </a>
                             </li>
                           ))}
@@ -685,23 +697,34 @@ export const HomesPanel = clientEntry(
                             )
                             : messages.map(messageBubble)}
                         </div>
-                        <div class="join mt-2 w-full">
-                          <input
-                            class="input input-bordered join-item flex-1"
-                            placeholder="メッセージを入力"
-                            value={newMessage}
-                            mix={[on<HTMLInputElement>("input", (e) => {
-                              newMessage = (e.target as HTMLInputElement).value;
-                            })]}
-                          />
-                          <button
-                            type="button"
-                            class="btn btn-primary join-item"
-                            mix={[on("click", onPostMessage)]}
-                          >
-                            送信
-                          </button>
-                        </div>
+                        {selectedArchived()
+                          ? (
+                            <div class="alert alert-soft mt-2">
+                              <span>
+                                このスレッドはアーカイブ済みです（読み取り専用）。
+                              </span>
+                            </div>
+                          )
+                          : (
+                            <div class="join mt-2 w-full">
+                              <input
+                                class="input input-bordered join-item flex-1"
+                                placeholder="メッセージを入力"
+                                value={newMessage}
+                                mix={[on<HTMLInputElement>("input", (e) => {
+                                  newMessage =
+                                    (e.target as HTMLInputElement).value;
+                                })]}
+                              />
+                              <button
+                                type="button"
+                                class="btn btn-primary join-item"
+                                mix={[on("click", onPostMessage)]}
+                              >
+                                送信
+                              </button>
+                            </div>
+                          )}
                       </div>
                     </div>
                   )

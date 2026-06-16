@@ -8,6 +8,7 @@ import { migrate } from "./migrate.ts";
 import { upsertUser } from "./users.ts";
 import { createHome } from "./homes.ts";
 import {
+  archiveStaleThreads,
   createThread,
   deleteMessage,
   editMessage,
@@ -16,6 +17,7 @@ import {
   postMessage,
   repostMessage,
 } from "./threads.ts";
+import { db } from "./client.ts";
 
 if (!Deno.env.get("TURSO_DATABASE_URL")) {
   Deno.env.set("TURSO_DATABASE_URL", ":memory:");
@@ -129,6 +131,33 @@ Deno.test("repost references the original and flattens repost-of-repost", async 
   const msgs = await listMessages(t2.id);
   const r = msgs.find((m) => m.id === repost.id)!;
   assertEquals(r.repost?.deleted, true);
+});
+
+Deno.test("threads with no recent activity auto-archive and become read-only", async () => {
+  const home = await setup();
+  // A thread created 10 days ago with no messages.
+  await (await db()).execute({
+    sql: "INSERT INTO threads (id, home_id, title, created_by, created_at) " +
+      "VALUES (?, ?, ?, ?, datetime('now', '-10 days'))",
+    args: ["old-thread", home.id, "古いスレッド", "alice"],
+  });
+  // A fresh thread that should stay active.
+  const fresh = await createThread({
+    homeId: home.id,
+    title: "新しい",
+    userId: "alice",
+  });
+
+  await archiveStaleThreads(home.id);
+  const threads = await listThreads(home.id);
+  const old = threads.find((t) => t.id === "old-thread")!;
+  assert(old.archivedAt);
+  assertEquals(threads.find((t) => t.id === fresh.id)!.archivedAt, null);
+
+  // Posting into an archived thread is rejected.
+  await assertRejects(() =>
+    postMessage({ threadId: "old-thread", authorId: "alice", body: "x" })
+  );
 });
 
 Deno.test("empty thread title and message body are rejected", async () => {

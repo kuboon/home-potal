@@ -31,6 +31,8 @@ export {
   setMemberRole,
 } from "./homes.ts";
 export {
+  ARCHIVE_AFTER_DAYS,
+  archiveStaleThreads,
   createThread,
   deleteMessage,
   editMessage,
