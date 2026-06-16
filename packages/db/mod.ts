@@ -34,6 +34,7 @@ export {
   createThread,
   getThread,
   listMessages,
+  listMessagesAfter,
   listThreads,
   MAX_MESSAGE_LENGTH,
   type Message,

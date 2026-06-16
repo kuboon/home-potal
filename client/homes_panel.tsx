@@ -61,6 +61,7 @@ export const HomesPanel = clientEntry(
     let newThreadTitle = "";
     let newMessage = "";
     let fetchDpop: FetchDpop | null = null;
+    let streamAbort: AbortController | null = null;
 
     const selectedRole = () => homes.find((h) => h.id === selectedId)?.role;
 
@@ -106,6 +107,55 @@ export const HomesPanel = clientEntry(
       messages = data.messages;
     };
 
+    /**
+     * Open the thread's SSE stream and append new messages as they arrive.
+     * Read with fetchDpop (EventSource can't send the DPoP header) and parse
+     * the `event:`/`data:` frames manually.
+     */
+    const startStream = (threadId: string) => {
+      streamAbort?.abort();
+      const ac = new AbortController();
+      streamAbort = ac;
+      const afterId = messages.length ? messages[messages.length - 1].id : "";
+      (async () => {
+        const response = await fetchDpop!(
+          `/api/threads/${threadId}/stream?after=${
+            encodeURIComponent(afterId)
+          }`,
+          { signal: ac.signal },
+        );
+        if (!response.ok || !response.body) return;
+        const reader = response.body
+          .pipeThrough(new TextDecoderStream())
+          .getReader();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += value;
+          let idx: number;
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            const block = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const lines = block.split("\n");
+            const event = lines.find((l) => l.startsWith("event:"))
+              ?.slice(6).trim();
+            const data = lines.find((l) => l.startsWith("data:"))
+              ?.slice(5).trim();
+            if (event !== "message" || !data) continue;
+            const msg = JSON.parse(data) as Message;
+            if (
+              selectedThreadId === threadId &&
+              !messages.some((m) => m.id === msg.id)
+            ) {
+              messages = [...messages, msg];
+              handle.update();
+            }
+          }
+        }
+      })().catch(() => {});
+    };
+
     const run = async (fn: () => Promise<void>) => {
       error = "";
       try {
@@ -132,6 +182,7 @@ export const HomesPanel = clientEntry(
 
     const onSelect = (homeId: string) =>
       run(async () => {
+        streamAbort?.abort();
         selectedId = homeId;
         selectedThreadId = null;
         messages = [];
@@ -156,6 +207,7 @@ export const HomesPanel = clientEntry(
       run(async () => {
         selectedThreadId = threadId;
         await loadMessages(threadId);
+        startStream(threadId);
       });
 
     const onPostMessage = () =>

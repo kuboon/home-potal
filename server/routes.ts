@@ -34,5 +34,7 @@ export const routes = route({
     messages: get("/threads/:threadId/messages"),
     /** POST /api/threads/:threadId/messages — post a message (members). */
     post: post("/threads/:threadId/messages"),
+    /** GET /api/threads/:threadId/stream — SSE of new messages (members). */
+    stream: get("/threads/:threadId/stream"),
   }),
 });

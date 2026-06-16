@@ -129,3 +129,22 @@ export async function listMessages(threadId: string): Promise<Message[]> {
   });
   return rows.map(rowToMessage);
 }
+
+/**
+ * Live messages newer than `afterId`, oldest first. Message ids are ULIDs, so
+ * `id > afterId` is a time-ordered "since" filter. Pass `""` for all. Used by
+ * the realtime stream to fetch only what a client hasn't seen yet.
+ */
+export async function listMessagesAfter(
+  threadId: string,
+  afterId: string,
+): Promise<Message[]> {
+  const { rows } = await (await db()).execute({
+    sql: "SELECT m.*, u.display_name FROM messages m " +
+      "JOIN users u ON u.id = m.author_id " +
+      "WHERE m.thread_id = ? AND m.deleted_at IS NULL AND m.id > ? " +
+      "ORDER BY m.created_at",
+    args: [threadId, afterId],
+  });
+  return rows.map(rowToMessage);
+}

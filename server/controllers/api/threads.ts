@@ -13,10 +13,13 @@ import {
   getThread,
   HomeError,
   listMessages,
+  listMessagesAfter,
   listThreads,
+  type Message,
   postMessage,
 } from "@scope/db";
 import { dpop, DpopSession } from "../../middleware/dpop.ts";
+import { signalThread, watchThread } from "../../realtime.ts";
 import type { routes } from "../../routes.ts";
 
 function currentUserId(session: DpopSession): string | null {
@@ -93,10 +96,73 @@ export const threadsController = {
           authorId: userId,
           body: body.body ?? "",
         });
+        await signalThread(threadId);
         return Response.json({ message }, { status: 201 });
       } catch (error) {
         return handleError(error);
       }
+    },
+
+    async stream(context) {
+      const userId = currentUserId(context.get(DpopSession));
+      if (!userId) return unauthorized();
+      const { threadId } = context.params;
+      const thread = await getThread(threadId);
+      if (!thread) {
+        return Response.json({ error: "not found" }, { status: 404 });
+      }
+      if (!(await getRole(thread.homeId, userId))) return forbidden();
+
+      // Only send messages the client hasn't already loaded.
+      let afterId = new URL(context.request.url).searchParams.get("after") ??
+        "";
+      const encoder = new TextEncoder();
+
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (event: string, data: unknown) =>
+            controller.enqueue(
+              encoder.encode(
+                `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+              ),
+            );
+          const flush = async () => {
+            const fresh: Message[] = await listMessagesAfter(threadId, afterId);
+            for (const m of fresh) {
+              send("message", m);
+              afterId = m.id;
+            }
+          };
+
+          send("ready", { threadId });
+          await flush();
+
+          const reader = watchThread(threadId).getReader();
+          const stop = () => {
+            reader.cancel().catch(() => {});
+            try {
+              controller.close();
+            } catch { /* already closed */ }
+          };
+          context.request.signal.addEventListener("abort", stop);
+
+          try {
+            while (true) {
+              const { done } = await reader.read();
+              if (done) break;
+              await flush();
+            }
+          } catch { /* client gone */ }
+        },
+      });
+
+      return new Response(body, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      });
     },
   },
 } satisfies Controller<typeof routes.threadsApi>;

@@ -34,8 +34,9 @@ client / server を分離した Deno workspaces。
 - ドメインデータ（`users` ほか後続の home/thread/message…）= **Turso
   (libSQL)**。
 - セッション = **Deno KV**（`@kuboon/kv` +
-  `session-storage-kv`）。リアルタイム配信 （後続）は SSE + Deno KV watch
-  をシグナルに使う予定。
+  `session-storage-kv`）。リアルタイム配信は **SSE + Deno KV
+  watch**（`server/realtime.ts`）。メッセージは Turso が真実の源で、 KV
+  はスレッド単位の変更シグナルにのみ使う。
 
 ## 環境変数
 
@@ -64,7 +65,8 @@ deno task check     # deno check + lint + fmt --check
 
 **基盤**（雛形・データ層・認証・CI/デプロイ）+ **Home /
 メンバー管理**（作成・一覧・ admin/member ロール・メンバー追加(userId
-指定)/削除）+ **Thread /
-Message**（スレッド作成・一覧、メッセージ投稿・表示）まで実装済み。後続で Repost
-/ リアルタイム / 招待トークン / エージェント・MCP / Web Push 通知 /
-モデレーション / アーカイブ / CSS テーマ / スタンプ を積み上げる。
+指定)/削除）+ **Thread / Message**（スレッド作成・一覧、メッセージ投稿・表示）+
+**リアルタイム配信**（SSE + Deno KV watch
+で新着メッセージを即時表示）まで実装済み。後続で Repost / 招待トークン /
+エージェント・MCP / Web Push 通知 / モデレーション / アーカイブ / CSS テーマ /
+スタンプ を積み上げる。
