@@ -30,3 +30,13 @@ export {
   type Role,
   setMemberRole,
 } from "./homes.ts";
+export {
+  createThread,
+  getThread,
+  listMessages,
+  listThreads,
+  MAX_MESSAGE_LENGTH,
+  type Message,
+  postMessage,
+  type Thread,
+} from "./threads.ts";

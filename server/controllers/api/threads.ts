@@ -1,0 +1,102 @@
+/**
+ * /api — DPoP-protected Thread + Message endpoints.
+ *
+ * Reading and posting require the caller to be a member of the thread's home.
+ * The acting user is the `userId` bound to the DPoP session.
+ */
+
+import type { Controller } from "@remix-run/fetch-router";
+
+import {
+  createThread,
+  getRole,
+  getThread,
+  HomeError,
+  listMessages,
+  listThreads,
+  postMessage,
+} from "@scope/db";
+import { dpop, DpopSession } from "../../middleware/dpop.ts";
+import type { routes } from "../../routes.ts";
+
+function currentUserId(session: DpopSession): string | null {
+  const value = session.get("userId");
+  return typeof value === "string" ? value : null;
+}
+
+const unauthorized = () =>
+  Response.json({ error: "not signed in" }, { status: 401 });
+const forbidden = () =>
+  Response.json({ error: "not a member" }, { status: 403 });
+
+function handleError(error: unknown): Response {
+  if (error instanceof HomeError) {
+    return Response.json({ error: error.message }, { status: error.status });
+  }
+  throw error;
+}
+
+export const threadsController = {
+  middleware: [dpop],
+  actions: {
+    async list(context) {
+      const userId = currentUserId(context.get(DpopSession));
+      if (!userId) return unauthorized();
+      const { homeId } = context.params;
+      if (!(await getRole(homeId, userId))) return forbidden();
+      return Response.json({ threads: await listThreads(homeId) });
+    },
+
+    async create(context) {
+      const userId = currentUserId(context.get(DpopSession));
+      if (!userId) return unauthorized();
+      const { homeId } = context.params;
+      if (!(await getRole(homeId, userId))) return forbidden();
+      const body = await context.request.json() as { title?: string };
+      try {
+        const thread = await createThread({
+          homeId,
+          title: body.title ?? "",
+          userId,
+        });
+        return Response.json({ thread }, { status: 201 });
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+
+    async messages(context) {
+      const userId = currentUserId(context.get(DpopSession));
+      if (!userId) return unauthorized();
+      const { threadId } = context.params;
+      const thread = await getThread(threadId);
+      if (!thread) {
+        return Response.json({ error: "not found" }, { status: 404 });
+      }
+      if (!(await getRole(thread.homeId, userId))) return forbidden();
+      return Response.json({ messages: await listMessages(threadId) });
+    },
+
+    async post(context) {
+      const userId = currentUserId(context.get(DpopSession));
+      if (!userId) return unauthorized();
+      const { threadId } = context.params;
+      const thread = await getThread(threadId);
+      if (!thread) {
+        return Response.json({ error: "not found" }, { status: 404 });
+      }
+      if (!(await getRole(thread.homeId, userId))) return forbidden();
+      const body = await context.request.json() as { body?: string };
+      try {
+        const message = await postMessage({
+          threadId,
+          authorId: userId,
+          body: body.body ?? "",
+        });
+        return Response.json({ message }, { status: 201 });
+      } catch (error) {
+        return handleError(error);
+      }
+    },
+  },
+} satisfies Controller<typeof routes.threadsApi>;

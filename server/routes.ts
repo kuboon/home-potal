@@ -25,4 +25,14 @@ export const routes = route({
     /** DELETE /api/homes/:homeId/members/:userId — remove member (admin). */
     removeMember: del("/:homeId/members/:userId"),
   }),
+  threadsApi: route("api", {
+    /** GET /api/homes/:homeId/threads — threads in a home (members). */
+    list: get("/homes/:homeId/threads"),
+    /** POST /api/homes/:homeId/threads — create a thread (members). */
+    create: post("/homes/:homeId/threads"),
+    /** GET /api/threads/:threadId/messages — messages in a thread (members). */
+    messages: get("/threads/:threadId/messages"),
+    /** POST /api/threads/:threadId/messages — post a message (members). */
+    post: post("/threads/:threadId/messages"),
+  }),
 });

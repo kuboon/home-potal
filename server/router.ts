@@ -11,6 +11,7 @@ import { staticFiles } from "@remix-run/static-middleware";
 
 import { apiController } from "./controllers/api/controller.ts";
 import { homesController } from "./controllers/api/homes.ts";
+import { threadsController } from "./controllers/api/threads.ts";
 import { homeAction } from "./controllers/home.tsx";
 import { homesAction } from "./controllers/homes.tsx";
 import { signinAction } from "./controllers/signin.tsx";
@@ -29,5 +30,6 @@ router.get(routes.signin, signinAction);
 router.get(routes.homes, homesAction);
 router.map(routes.api, apiController);
 router.map(routes.homesApi, homesController);
+router.map(routes.threadsApi, threadsController);
 
 export default router;

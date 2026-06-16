@@ -32,6 +32,18 @@ interface Member {
   role: "admin" | "member";
 }
 
+interface Thread {
+  id: string;
+  title: string;
+}
+
+interface Message {
+  id: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
 export const HomesPanel = clientEntry(
   "/homes_panel.js#HomesPanel",
   function HomesPanel(handle: Handle<HomesPanelProps>) {
@@ -41,8 +53,13 @@ export const HomesPanel = clientEntry(
     let homes: HomeWithRole[] = [];
     let selectedId: string | null = null;
     let members: Member[] = [];
+    let threads: Thread[] = [];
+    let selectedThreadId: string | null = null;
+    let messages: Message[] = [];
     let newHomeName = "";
     let addUserId = "";
+    let newThreadTitle = "";
+    let newMessage = "";
     let fetchDpop: FetchDpop | null = null;
 
     const selectedRole = () => homes.find((h) => h.id === selectedId)?.role;
@@ -75,6 +92,20 @@ export const HomesPanel = clientEntry(
       members = data.members;
     };
 
+    const loadThreads = async (homeId: string) => {
+      const data = await api(`/api/homes/${homeId}/threads`) as {
+        threads: Thread[];
+      };
+      threads = data.threads;
+    };
+
+    const loadMessages = async (threadId: string) => {
+      const data = await api(`/api/threads/${threadId}/messages`) as {
+        messages: Message[];
+      };
+      messages = data.messages;
+    };
+
     const run = async (fn: () => Promise<void>) => {
       error = "";
       try {
@@ -102,7 +133,42 @@ export const HomesPanel = clientEntry(
     const onSelect = (homeId: string) =>
       run(async () => {
         selectedId = homeId;
+        selectedThreadId = null;
+        messages = [];
         await loadMembers(homeId);
+        await loadThreads(homeId);
+      });
+
+    const onCreateThread = () =>
+      run(async () => {
+        const title = newThreadTitle.trim();
+        if (!title || !selectedId) return;
+        await api(`/api/homes/${selectedId}/threads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+        newThreadTitle = "";
+        await loadThreads(selectedId);
+      });
+
+    const onSelectThread = (threadId: string) =>
+      run(async () => {
+        selectedThreadId = threadId;
+        await loadMessages(threadId);
+      });
+
+    const onPostMessage = () =>
+      run(async () => {
+        const body = newMessage.trim();
+        if (!body || !selectedThreadId) return;
+        await api(`/api/threads/${selectedThreadId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        });
+        newMessage = "";
+        await loadMessages(selectedThreadId);
       });
 
     const onAddMember = () =>
@@ -282,41 +348,130 @@ export const HomesPanel = clientEntry(
 
           {selectedId
             ? (
-              <div class="card card-border bg-base-100">
-                <div class="card-body">
-                  <h2 class="card-title">メンバー</h2>
-                  {selectedRole() === "admin"
-                    ? (
-                      <div class="join">
-                        <input
-                          class="input input-bordered input-sm join-item"
-                          placeholder="追加するユーザーの userId"
-                          value={addUserId}
-                          mix={[on<HTMLInputElement>("input", (e) => {
-                            addUserId = (e.target as HTMLInputElement).value;
-                          })]}
-                        />
-                        <button
-                          type="button"
-                          class="btn btn-sm join-item"
-                          mix={[on("click", onAddMember)]}
-                        >
-                          メンバー追加
-                        </button>
-                      </div>
-                    )
-                    : null}
-                  <table class="table">
-                    <thead>
-                      <tr>
-                        <th>ユーザー</th>
-                        <th>ロール</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>{members.map(memberRow)}</tbody>
-                  </table>
+              <div class="space-y-6">
+                <div class="card card-border bg-base-100">
+                  <div class="card-body">
+                    <h2 class="card-title">メンバー</h2>
+                    {selectedRole() === "admin"
+                      ? (
+                        <div class="join">
+                          <input
+                            class="input input-bordered input-sm join-item"
+                            placeholder="追加するユーザーの userId"
+                            value={addUserId}
+                            mix={[on<HTMLInputElement>("input", (e) => {
+                              addUserId = (e.target as HTMLInputElement).value;
+                            })]}
+                          />
+                          <button
+                            type="button"
+                            class="btn btn-sm join-item"
+                            mix={[on("click", onAddMember)]}
+                          >
+                            メンバー追加
+                          </button>
+                        </div>
+                      )
+                      : null}
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>ユーザー</th>
+                          <th>ロール</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>{members.map(memberRow)}</tbody>
+                    </table>
+                  </div>
                 </div>
+
+                <div class="card card-border bg-base-100">
+                  <div class="card-body">
+                    <h2 class="card-title">スレッド</h2>
+                    <div class="join">
+                      <input
+                        class="input input-bordered input-sm join-item"
+                        placeholder="新しいスレッドのタイトル"
+                        value={newThreadTitle}
+                        mix={[on<HTMLInputElement>("input", (e) => {
+                          newThreadTitle = (e.target as HTMLInputElement).value;
+                        })]}
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-sm join-item"
+                        mix={[on("click", onCreateThread)]}
+                      >
+                        作成
+                      </button>
+                    </div>
+                    {threads.length === 0
+                      ? <p class="opacity-70">まだスレッドがありません。</p>
+                      : (
+                        <ul class="menu bg-base-200 rounded-box">
+                          {threads.map((t) => (
+                            <li>
+                              <a
+                                class={selectedThreadId === t.id
+                                  ? "active"
+                                  : ""}
+                                mix={[on("click", () => onSelectThread(t.id))]}
+                              >
+                                {t.title}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                  </div>
+                </div>
+
+                {selectedThreadId
+                  ? (
+                    <div class="card card-border bg-base-100">
+                      <div class="card-body">
+                        <h2 class="card-title">メッセージ</h2>
+                        <div class="space-y-2">
+                          {messages.length === 0
+                            ? (
+                              <p class="opacity-70">
+                                まだメッセージがありません。
+                              </p>
+                            )
+                            : messages.map((m) => (
+                              <div class="chat chat-start">
+                                <div class="chat-header">
+                                  {m.authorName}
+                                  <time class="text-xs opacity-50 ml-1">
+                                    {m.createdAt}
+                                  </time>
+                                </div>
+                                <div class="chat-bubble">{m.body}</div>
+                              </div>
+                            ))}
+                        </div>
+                        <div class="join mt-2 w-full">
+                          <input
+                            class="input input-bordered join-item flex-1"
+                            placeholder="メッセージを入力"
+                            value={newMessage}
+                            mix={[on<HTMLInputElement>("input", (e) => {
+                              newMessage = (e.target as HTMLInputElement).value;
+                            })]}
+                          />
+                          <button
+                            type="button"
+                            class="btn btn-primary join-item"
+                            mix={[on("click", onPostMessage)]}
+                          >
+                            送信
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                  : null}
               </div>
             )
             : null}
