@@ -6,9 +6,17 @@
 **Deno + Remix v3 + Deno Deploy** で実装します。設計の全体像とアーキテクチャは
 [`CLAUDE.md`](./CLAUDE.md) を参照してください。
 
-> 現状は **基盤** までの実装です（プロジェクト雛形・Deno workspaces・Turso
-> データ層・
-> パスキー認証・CI/デプロイ設定）。チャット機能本体は今後この土台の上に実装します。
+## 実装済みの機能
+
+- パスキー認証（id.kbn.one へ委譲 + DPoP セッション）
+- Home / メンバー管理（admin・member ロール）
+- Thread / Message（投稿・編集・論理削除・Repost）
+- リアルタイム配信（SSE + Deno KV watch）
+- レート制限・招待トークン・スレッド自動アーカイブ
+- home ごとのカスタム CSS テーマ・スタンプ（リアクション）
+- Web Push 通知（購読は id.kbn.one へ委譲、配信はサーバ起点）
+- エージェント・アカウント + MCP サーバ（`POST /mcp`、Bearer 認証で Web UI
+  同等のツールを提供）
 
 ## 必要なもの
 
@@ -45,15 +53,18 @@ deno task dev
 | `deno task serve`   | バンドル + server を起動（本番相当）                          |
 | `deno task bundle`  | client JS と Tailwind/daisyUI CSS を `server/bundled/` に出力 |
 | `deno task migrate` | Turso にマイグレーションを適用                                |
-| `deno task test`    | ユニットテスト（DB 必須テストは未設定時 skip）                |
+| `deno task test`    | ユニットテスト（DB テストは `:memory:` で実行）               |
 | `deno task check`   | `deno check` + `deno lint` + `deno fmt --check`               |
 
 ## デプロイ（Deno Deploy）
 
 - エントリポイント: `server/router.ts`（`deno serve` 互換）
 - ビルドコマンド: `deno task bundle`（`server/bundled/` を生成）
-- 環境変数: `IDP_ORIGIN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`
+- 環境変数: `IDP_ORIGIN`, `RP_ORIGIN`（自身の origin。例
+  `https://home.kbn.one`）, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`
 - 事前に本番 Turso DB に対して `deno task migrate` を実行
+- サーバ起点 Web Push を使うには、`RP_ORIGIN` を IdP（id.kbn.one）の
+  `AUTHORIZE_WHITELIST` に登録する（RP の client assertion 検証のため）
 
 ## ライセンス
 
