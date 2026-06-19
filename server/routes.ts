@@ -9,6 +9,8 @@ export const routes = route({
   notifications: get("/notifications"),
   /** Public JWKS so the IdP can verify our RP client assertions. */
   jwks: get("/.well-known/jwks.json"),
+  /** MCP endpoint for agents (bearer-token auth, JSON-RPC). */
+  mcp: post("/mcp"),
   api: route("api", {
     /** DPoP-protected: returns the current session info. */
     me: get("/me"),
