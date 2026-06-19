@@ -54,3 +54,10 @@ export {
   type ReactionSummary,
   toggleReaction,
 } from "./reactions.ts";
+export {
+  type Agent,
+  createAgent,
+  deleteAgent,
+  getAgentIdByToken,
+  listAgentsByOwner,
+} from "./agents.ts";

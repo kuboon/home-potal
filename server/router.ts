@@ -9,10 +9,12 @@
 import { createRouter } from "@remix-run/fetch-router";
 import { staticFiles } from "@remix-run/static-middleware";
 
+import { agentsController } from "./controllers/api/agents.ts";
 import { apiController } from "./controllers/api/controller.ts";
 import { homesController } from "./controllers/api/homes.ts";
 import { invitesController } from "./controllers/api/invites.ts";
 import { threadsController } from "./controllers/api/threads.ts";
+import { agentsAction } from "./controllers/agents.tsx";
 import { homeAction } from "./controllers/home.tsx";
 import { homesAction } from "./controllers/homes.tsx";
 import { jwksAction } from "./controllers/jwks.ts";
@@ -31,9 +33,11 @@ router.get(routes.home, homeAction);
 router.get(routes.welcome, welcomeAction);
 router.get(routes.signin, signinAction);
 router.get(routes.homes, homesAction);
+router.get(routes.agents, agentsAction);
 router.get(routes.notifications, notificationsAction);
 router.get(routes.jwks, jwksAction);
 router.map(routes.api, apiController);
+router.map(routes.agentsApi, agentsController);
 router.map(routes.homesApi, homesController);
 router.map(routes.invitesApi, invitesController);
 router.map(routes.threadsApi, threadsController);

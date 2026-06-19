@@ -5,6 +5,7 @@ export const routes = route({
   welcome: get("/welcome"),
   signin: get("/signin"),
   homes: get("/homes"),
+  agents: get("/agents"),
   notifications: get("/notifications"),
   /** Public JWKS so the IdP can verify our RP client assertions. */
   jwks: get("/.well-known/jwks.json"),
@@ -31,6 +32,14 @@ export const routes = route({
     invite: post("/:homeId/invite"),
     /** POST /api/homes/:homeId/theme — set the home's custom CSS (admin). */
     setTheme: post("/:homeId/theme"),
+  }),
+  agentsApi: route("api/agents", {
+    /** GET /api/agents — the caller's agents. */
+    list: get("/"),
+    /** POST /api/agents — create an agent (returns its token once). */
+    create: post("/"),
+    /** DELETE /api/agents/:agentId — revoke an agent. */
+    delete: del("/:agentId"),
   }),
   invitesApi: route("api/invites", {
     /** POST /api/invites/:token/heartbeat — keep the invite alive (admin). */
