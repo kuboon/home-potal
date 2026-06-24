@@ -50,6 +50,7 @@ interface Message {
   createdAt: string;
   editedAt: string | null;
   deleted: boolean;
+  hidden: boolean;
   repost: { authorName: string; body: string; deleted: boolean } | null;
   reactions: { emoji: string; count: number; mine: boolean }[];
 }
@@ -363,8 +364,15 @@ export const ChatPanel = clientEntry(
             {m.editedAt
               ? <span class="text-xs opacity-50 ml-1">(編集済み)</span>
               : null}
+            {m.hidden
+              ? (
+                <span class="badge badge-warning badge-xs ml-1">
+                  管理者により非表示
+                </span>
+              )
+              : null}
           </div>
-          <div class="chat-bubble">
+          <div class={`chat-bubble ${m.hidden ? "opacity-60" : ""}`}>
             {m.repost
               ? (
                 <div class="border-l-4 border-base-content/20 pl-2 mb-1 text-sm opacity-80">

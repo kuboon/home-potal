@@ -35,10 +35,10 @@ export {
   ARCHIVE_AFTER_DAYS,
   archiveStaleThreads,
   createThread,
-  deleteMessage,
   editMessage,
   getMessageContext,
   getThread,
+  hideMessage,
   listMainMessages,
   listMessages,
   listThreads,
@@ -50,6 +50,7 @@ export {
   type RepostOf,
   type Thread,
   type ThreadForViewer,
+  tombstoneMessage,
 } from "./threads.ts";
 export {
   joinedUserIds,

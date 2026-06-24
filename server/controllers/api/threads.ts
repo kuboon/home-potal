@@ -9,11 +9,11 @@ import type { Controller } from "@remix-run/fetch-router";
 
 import {
   createThread,
-  deleteMessage,
   editMessage,
   getMessageContext,
   getRole,
   getThread,
+  hideMessage,
   HomeError,
   leaveThread,
   listMainMessages,
@@ -22,6 +22,7 @@ import {
   postMessage,
   repostMessage,
   toggleReaction,
+  tombstoneMessage,
 } from "@scope/db";
 import { dpop, DpopSession } from "../../middleware/dpop.ts";
 import { notifyNewMessage } from "../../notify.ts";
@@ -156,9 +157,10 @@ export const threadsController = {
       const userId = currentUserId(context.get(DpopSession));
       if (!userId) return unauthorized();
       const { homeId } = context.params;
-      if (!(await getRole(homeId, userId))) return forbidden();
+      const role = await getRole(homeId, userId);
+      if (!role) return forbidden();
       return Response.json({
-        messages: await listMainMessages(homeId, userId),
+        messages: await listMainMessages(homeId, userId, role === "admin"),
       });
     },
 
@@ -236,8 +238,11 @@ export const threadsController = {
       if (!thread) {
         return Response.json({ error: "not found" }, { status: 404 });
       }
-      if (!(await getRole(thread.homeId, userId))) return forbidden();
-      return Response.json({ messages: await listMessages(threadId, userId) });
+      const role = await getRole(thread.homeId, userId);
+      if (!role) return forbidden();
+      return Response.json({
+        messages: await listMessages(threadId, userId, role === "admin"),
+      });
     },
 
     async post(context) {
@@ -363,13 +368,17 @@ export const threadsController = {
       if (!ctx) return Response.json({ error: "not found" }, { status: 404 });
       const role = await getRole(ctx.homeId, userId);
       if (!role) return forbidden();
-      // Author can delete their own; admins can delete (moderate) any.
-      if (ctx.authorId !== userId && role !== "admin") {
+      // Author deletion (own post) destroys the body and leaves a tombstone;
+      // admin moderation (another's post) hides it but keeps the body.
+      if (ctx.authorId === userId) {
+        await tombstoneMessage(messageId, userId);
+      } else if (role === "admin") {
+        await hideMessage(messageId);
+      } else {
         return Response.json({ error: "author or admin only" }, {
           status: 403,
         });
       }
-      await deleteMessage(messageId);
       await signalChannel(ctx);
       return Response.json({ ok: true });
     },

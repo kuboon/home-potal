@@ -51,7 +51,10 @@ export interface Message {
   body: string;
   createdAt: string;
   editedAt: string | null;
+  /** Shown as a deletion to the viewer (author tombstone, or hidden to non-admins). */
   deleted: boolean;
+  /** Admin moderation: hidden from non-admins. True only when the viewer is an admin. */
+  hidden: boolean;
   /** Id of the original message this reposts, or `null`. */
   repostOf: string | null;
   /** The referenced original's summary when this is a repost. */
@@ -195,26 +198,43 @@ export async function postMessage(
 
 // Shared SELECT: message + author, plus the referenced original (for reposts).
 const MESSAGE_SELECT = "SELECT m.*, u.display_name, " +
-  "o.body AS r_body, o.deleted_at AS r_deleted, ou.display_name AS r_author " +
+  "o.body AS r_body, o.tombstone_at AS r_tombstone, o.hidden_at AS r_hidden, " +
+  "ou.display_name AS r_author " +
   "FROM messages m " +
   "JOIN users u ON u.id = m.author_id " +
-  "LEFT JOIN messages o ON o.id = m.repost_of " +
+  "LEFT JOIN messages o ON o.id = m.ref_post_id " +
   "LEFT JOIN users ou ON ou.id = o.author_id";
 
-async function getMessage(id: string): Promise<Message | null> {
+async function getMessage(
+  id: string,
+  viewerIsAdmin = false,
+): Promise<Message | null> {
   const { rows } = await (await db()).execute({
     sql: `${MESSAGE_SELECT} WHERE m.id = ?`,
     args: [id],
   });
-  return rows[0] ? rowToMessage(rows[0]) : null;
+  return rows[0] ? rowToMessage(rows[0], viewerIsAdmin) : null;
 }
 
-function rowToMessage(row: Record<string, unknown>): Message {
-  const deleted = row.deleted_at != null;
-  const repostOf = row.repost_of == null ? null : String(row.repost_of);
+/**
+ * Map a row to a Message, applying moderation visibility for the viewer:
+ * - tombstone (author delete): body destroyed for everyone.
+ * - hidden (admin moderation): body kept, but only admins can read it;
+ *   to everyone else it looks like a deletion.
+ * A repost's preview reads "[deleted]" whenever the original is hidden OR
+ * tombstoned — even to admins (the preview never reveals moderated content).
+ */
+function rowToMessage(
+  row: Record<string, unknown>,
+  viewerIsAdmin: boolean,
+): Message {
+  const tombstone = row.tombstone_at != null;
+  const hidden = row.hidden_at != null;
+  const deletedForViewer = tombstone || (hidden && !viewerIsAdmin);
+  const refPostId = row.ref_post_id == null ? null : String(row.ref_post_id);
   let repost: RepostOf | null = null;
-  if (repostOf && row.r_author != null) {
-    const rDeleted = row.r_deleted != null;
+  if (refPostId && row.r_author != null) {
+    const rDeleted = row.r_tombstone != null || row.r_hidden != null;
     repost = {
       authorName: String(row.r_author),
       body: rDeleted ? "" : String(row.r_body),
@@ -227,12 +247,13 @@ function rowToMessage(row: Record<string, unknown>): Message {
     threadId: row.thread_id == null ? null : String(row.thread_id),
     authorId: String(row.author_id),
     authorName: String(row.display_name),
-    // Deleted messages keep a tombstone (the row) but not their content.
-    body: deleted ? "" : String(row.body),
+    body: deletedForViewer ? "" : String(row.body),
     createdAt: String(row.created_at),
     editedAt: row.edited_at == null ? null : String(row.edited_at),
-    deleted,
-    repostOf,
+    deleted: deletedForViewer,
+    // Admins see a hidden post's body, flagged as moderated.
+    hidden: hidden && viewerIsAdmin,
+    repostOf: refPostId,
     repost,
     reactions: [],
   };
@@ -245,6 +266,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
 async function listChannelMessages(
   channel: Channel,
   viewerId: string,
+  viewerIsAdmin: boolean,
 ): Promise<Message[]> {
   const scope = channel.threadId
     ? { clause: "m.thread_id = ?", arg: channel.threadId }
@@ -253,7 +275,7 @@ async function listChannelMessages(
     sql: `${MESSAGE_SELECT} WHERE ${scope.clause} ORDER BY m.created_at`,
     args: [scope.arg],
   });
-  const messages = rows.map(rowToMessage);
+  const messages = rows.map((r) => rowToMessage(r, viewerIsAdmin));
   const reactions = await reactionsByMessage(channel, viewerId);
   for (const m of messages) m.reactions = reactions.get(m.id) ?? [];
   return messages;
@@ -263,22 +285,28 @@ async function listChannelMessages(
 export function listMessages(
   threadId: string,
   viewerId = "",
+  viewerIsAdmin = false,
 ): Promise<Message[]> {
-  return listChannelMessages({ homeId: "", threadId }, viewerId);
+  return listChannelMessages({ homeId: "", threadId }, viewerId, viewerIsAdmin);
 }
 
 /** Messages in a home's main channel (no thread), oldest first. */
 export function listMainMessages(
   homeId: string,
   viewerId = "",
+  viewerIsAdmin = false,
 ): Promise<Message[]> {
-  return listChannelMessages({ homeId, threadId: null }, viewerId);
+  return listChannelMessages(
+    { homeId, threadId: null },
+    viewerId,
+    viewerIsAdmin,
+  );
 }
 
 /**
  * Repost (pick up) a message into a thread, with an optional comment (`body`).
  * Link flattening: a repost always references the ORIGINAL, so reposting a
- * repost copies its `repost_of` rather than pointing at the repost.
+ * repost copies its `ref_post_id` rather than pointing at the repost.
  */
 export async function repostMessage(
   input: {
@@ -302,8 +330,8 @@ export async function repostMessage(
   }
   await (await db()).execute({
     sql:
-      "INSERT INTO messages (id, home_id, thread_id, author_id, body, repost_of) " +
-      "VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO messages (id, home_id, thread_id, author_id, body, kind, ref_post_id) " +
+      "VALUES (?, ?, ?, ?, ?, 'repost', ?)",
     args: [
       id,
       input.homeId,
@@ -351,24 +379,43 @@ export async function editMessage(
   if (ctx?.threadId) await assertWritable(ctx.threadId);
   const result = await (await db()).execute({
     sql: "UPDATE messages SET body = ?, edited_at = datetime('now') " +
-      "WHERE id = ? AND author_id = ? AND deleted_at IS NULL",
+      "WHERE id = ? AND author_id = ? AND tombstone_at IS NULL " +
+      "AND hidden_at IS NULL",
     args: [body, input.messageId, input.authorId],
   });
   if (result.rowsAffected === 0) {
     throw new HomeError("message not found or not editable", 404);
   }
-  const message = await getMessage(input.messageId);
+  const message = await getMessage(input.messageId, true);
   if (!message) throw new Error("editMessage failed to read back");
   return message;
 }
 
-/** Soft-delete a message: clear its body, leave a tombstone. Idempotent. */
-export async function deleteMessage(messageId: string): Promise<void> {
+/**
+ * Author deletion: leave a tombstone and destroy the body. Idempotent.
+ * Rejected on archived threads (read-only, like any author write).
+ */
+export async function tombstoneMessage(
+  messageId: string,
+  authorId: string,
+): Promise<void> {
   const ctx = await getMessageContext(messageId);
   if (ctx?.threadId) await assertWritable(ctx.threadId);
   await (await db()).execute({
-    sql: "UPDATE messages SET deleted_at = datetime('now'), body = '' " +
-      "WHERE id = ? AND deleted_at IS NULL",
+    sql: "UPDATE messages SET tombstone_at = datetime('now'), body = '' " +
+      "WHERE id = ? AND author_id = ? AND tombstone_at IS NULL",
+    args: [messageId, authorId],
+  });
+}
+
+/**
+ * Admin moderation: hide a post from non-admins. The body is retained (admins
+ * can still read it). Allowed even on archived threads, per the design.
+ */
+export async function hideMessage(messageId: string): Promise<void> {
+  await (await db()).execute({
+    sql: "UPDATE messages SET hidden_at = datetime('now') " +
+      "WHERE id = ? AND hidden_at IS NULL",
     args: [messageId],
   });
 }

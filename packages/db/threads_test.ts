@@ -10,13 +10,13 @@ import { createHome } from "./homes.ts";
 import {
   archiveStaleThreads,
   createThread,
-  deleteMessage,
   editMessage,
   listMainMessages,
   listMessages,
   listThreads,
   postMessage,
   repostMessage,
+  tombstoneMessage,
 } from "./threads.ts";
 import { db } from "./client.ts";
 
@@ -121,7 +121,7 @@ Deno.test("edit updates body + marks edited; delete leaves a tombstone", async (
     editMessage({ messageId: posted.id, authorId: "bob", body: "x" })
   );
 
-  await deleteMessage(posted.id);
+  await tombstoneMessage(posted.id, "alice");
   const after = await listMessages(thread.id);
   assertEquals(after.length, 1); // tombstone remains
   assertEquals(after[0].deleted, true);
@@ -170,7 +170,7 @@ Deno.test("repost references the original and flattens repost-of-repost", async 
   assertEquals(repost2.repostOf, original.id);
 
   // When the original is deleted, the repost shows a deleted marker.
-  await deleteMessage(original.id);
+  await tombstoneMessage(original.id, "alice");
   const msgs = await listMessages(t2.id);
   const r = msgs.find((m) => m.id === repost.id)!;
   assertEquals(r.repost?.deleted, true);

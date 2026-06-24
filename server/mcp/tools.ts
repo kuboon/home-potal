@@ -97,8 +97,8 @@ export const tools: McpTool[] = [
       const threadId = str(args, "threadId");
       const thread = await getThread(threadId);
       if (!thread) throw new ToolError("thread not found");
-      await requireMember(thread.homeId, agentId);
-      return await listMessages(threadId, agentId);
+      const role = await requireMember(thread.homeId, agentId);
+      return await listMessages(threadId, agentId, role === "admin");
     },
   },
   {
