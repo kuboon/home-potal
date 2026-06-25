@@ -197,6 +197,35 @@ Deno.test("editing a post re-points existing reposts to the new version", async 
   assertEquals(r.repost?.body, "v2");
 });
 
+Deno.test("quotedIn lists the threads that repost a post (bidirectional link)", async () => {
+  const home = await setup();
+  const branch = await createThread({
+    homeId: home.id,
+    title: "branch",
+    userId: "alice",
+  });
+  // A main-channel post quoted into a thread.
+  const orig = await postMessage({
+    homeId: home.id,
+    authorId: "alice",
+    body: "main post",
+  });
+  await repostMessage({
+    homeId: home.id,
+    threadId: branch.id,
+    authorId: "alice",
+    sourceMessageId: orig.id,
+  });
+
+  const main = await listMainMessages(home.id, "alice");
+  const o = main.find((m) => m.id === orig.id)!;
+  assertEquals(o.quotedIn, [{ threadId: branch.id, title: "branch" }]);
+
+  // The repost itself (inside the thread) is not "quoted in" anything.
+  const inThread = await listMessages(branch.id, "alice");
+  assertEquals(inThread.every((m) => m.quotedIn.length === 0), true);
+});
+
 Deno.test("repost references the original and flattens repost-of-repost", async () => {
   const home = await setup();
   const t1 = await createThread({

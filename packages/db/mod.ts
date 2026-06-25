@@ -46,6 +46,7 @@ export {
   MAX_MESSAGE_LENGTH,
   type Message,
   postMessage,
+  type QuoteRef,
   repostMessage,
   type RepostOf,
   type Thread,

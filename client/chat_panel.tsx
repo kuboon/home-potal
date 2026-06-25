@@ -53,6 +53,7 @@ interface Message {
   deleted: boolean;
   hidden: boolean;
   repost: { authorName: string; body: string; deleted: boolean } | null;
+  quotedIn: { threadId: string; title: string }[];
   reactions: { emoji: string; count: number; mine: boolean }[];
 }
 
@@ -75,6 +76,7 @@ export const ChatPanel = clientEntry(
     let newThreadTitle = "";
     let recentEmojis: string[] = [];
     let paletteFor: string | null = null;
+    let quotesFor: string | null = null;
     let fetchDpop: FetchDpop | null = null;
     let streamAbort: AbortController | null = null;
 
@@ -465,6 +467,37 @@ export const ChatPanel = clientEntry(
                       {e}
                     </button>
                   ))
+                  : null}
+              </div>
+            )
+            : null}
+          {m.quotedIn.length > 0
+            ? (
+              <div class="chat-footer mt-1">
+                <button
+                  type="button"
+                  class="badge badge-ghost badge-sm gap-1"
+                  mix={[on("click", () => {
+                    quotesFor = quotesFor === m.id ? null : m.id;
+                    handle.update();
+                  })]}
+                >
+                  💬 {m.quotedIn.length} 件のスレッドで引用
+                </button>
+                {quotesFor === m.id
+                  ? (
+                    <ul class="menu menu-xs bg-base-200 rounded-box mt-1">
+                      {m.quotedIn.map((q) => (
+                        <li key={q.threadId}>
+                          <a
+                            mix={[on("click", () => selectChannel(q.threadId))]}
+                          >
+                            <span class="truncate">{q.title}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )
                   : null}
               </div>
             )

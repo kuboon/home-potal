@@ -41,6 +41,12 @@ export interface RepostOf {
   deleted: boolean;
 }
 
+/** A thread that quotes (reposts) a given post — for the bidirectional link. */
+export interface QuoteRef {
+  threadId: string;
+  title: string;
+}
+
 export interface Message {
   id: string;
   homeId: string;
@@ -61,6 +67,8 @@ export interface Message {
   repostOf: string | null;
   /** The referenced original's summary when this is a repost. */
   repost: RepostOf | null;
+  /** Threads that quote (repost) this post — the bidirectional "quoted in" link. */
+  quotedIn: QuoteRef[];
   /** Aggregated reactions (populated by `listMessages`). */
   reactions: ReactionSummary[];
 }
@@ -261,6 +269,7 @@ function rowToMessage(
     hidden: hidden && viewerIsAdmin,
     repostOf: refPostId,
     repost,
+    quotedIn: [],
     reactions: [],
   };
 }
@@ -282,9 +291,51 @@ async function listChannelMessages(
     args: [scope.arg],
   });
   const messages = rows.map((r) => rowToMessage(r, viewerIsAdmin));
-  const reactions = await reactionsByMessage(channel, viewerId);
-  for (const m of messages) m.reactions = reactions.get(m.id) ?? [];
+  const [reactions, quoted] = await Promise.all([
+    reactionsByMessage(channel, viewerId),
+    quotedThreadsByMessage(
+      messages.map((m) => m.id),
+      channel.threadId ?? null,
+    ),
+  ]);
+  for (const m of messages) {
+    m.reactions = reactions.get(m.id) ?? [];
+    m.quotedIn = quoted.get(m.id) ?? [];
+  }
   return messages;
+}
+
+/**
+ * For each given post, the distinct (active) threads that repost it — the
+ * bidirectional "quoted in" link. Excludes the channel being viewed
+ * (`excludeThreadId`) so a post doesn't link back to its own thread, and
+ * excludes archived threads to keep the affordance about live branches.
+ */
+async function quotedThreadsByMessage(
+  postIds: string[],
+  excludeThreadId: string | null,
+): Promise<Map<string, QuoteRef[]>> {
+  const map = new Map<string, QuoteRef[]>();
+  if (postIds.length === 0) return map;
+  const placeholders = postIds.map(() => "?").join(",");
+  const { rows } = await (await db()).execute({
+    sql:
+      "SELECT DISTINCT m.ref_post_id AS oid, t.id AS tid, t.title AS title " +
+      "FROM messages m JOIN threads t ON t.id = m.thread_id " +
+      "WHERE m.kind = 'repost' AND m.thread_id IS NOT NULL " +
+      `AND t.archived_at IS NULL AND m.ref_post_id IN (${placeholders}) ` +
+      "ORDER BY t.created_at",
+    args: postIds,
+  });
+  for (const row of rows) {
+    const tid = String(row.tid);
+    if (tid === excludeThreadId) continue;
+    const oid = String(row.oid);
+    const list = map.get(oid) ?? [];
+    list.push({ threadId: tid, title: String(row.title) });
+    map.set(oid, list);
+  }
+  return map;
 }
 
 /** Messages in a thread, oldest first. */
