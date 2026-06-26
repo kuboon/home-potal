@@ -238,7 +238,7 @@ export const ChatPanel = clientEntry(
 
     const onPickupToNewThread = (messageId: string) =>
       run(async () => {
-        const title = globalThis.prompt("この投稿から新しいスレッドを作成", "");
+        const title = globalThis.prompt("返信スレッドのタイトル", "");
         if (title == null || !title.trim()) return;
         const data = await api(`/api/homes/${homeId}/threads`, {
           method: "POST",
@@ -406,18 +406,6 @@ export const ChatPanel = clientEntry(
         await loadMessages();
       });
 
-    const onRepost = (sourceMessageId: string) =>
-      run(async () => {
-        const comment = globalThis.prompt("引用にコメント（任意）", "");
-        if (comment == null) return;
-        await api(`${channelBase()}/reposts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sourceMessageId, body: comment }),
-        });
-        await loadMessages();
-      });
-
     const onToggleReaction = (messageId: string, emoji: string) =>
       run(async () => {
         paletteFor = null;
@@ -509,7 +497,7 @@ export const ChatPanel = clientEntry(
       const mine = m.authorId === userId;
       const canDelete = mine || role === "admin";
       return (
-        <div class="chat chat-start">
+        <div class="chat chat-start group relative">
           <div class="chat-header">
             {m.authorName}
             <time class="text-xs opacity-50 ml-1">{m.createdAt}</time>
@@ -537,31 +525,38 @@ export const ChatPanel = clientEntry(
               : null}
             {m.body}
           </div>
-          <div class="chat-footer opacity-60">
+          {/* Slack/Discord-style hover actions in the top-right of the post. */}
+          <div class="absolute -top-2 right-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity join border border-base-300 bg-base-100 shadow-sm">
             {archived() ? null : (
               <button
                 type="button"
-                class="link link-hover text-xs mr-2"
-                mix={[on("click", () => onRepost(m.id))]}
+                class="btn btn-ghost btn-xs join-item"
+                aria-label="リアクション"
+                mix={[on("click", () => {
+                  paletteFor = paletteFor === m.id ? null : m.id;
+                  handle.update();
+                })]}
               >
-                引用
+                😀
               </button>
             )}
             <button
               type="button"
-              class="link link-hover text-xs mr-2"
+              class="btn btn-ghost btn-xs join-item"
+              aria-label="返信"
               mix={[on("click", () => onPickupToNewThread(m.id))]}
             >
-              スレッド化
+              ↩︎
             </button>
             {!archived() && mine
               ? (
                 <button
                   type="button"
-                  class="link link-hover text-xs mr-2"
+                  class="btn btn-ghost btn-xs join-item"
+                  aria-label="編集"
                   mix={[on("click", () => onEdit(m.id, m.body))]}
                 >
-                  編集
+                  ✏️
                 </button>
               )
               : null}
@@ -569,25 +564,14 @@ export const ChatPanel = clientEntry(
               ? (
                 <button
                   type="button"
-                  class="link link-hover text-xs"
+                  class="btn btn-ghost btn-xs join-item"
+                  aria-label="削除"
                   mix={[on("click", () => onDelete(m.id))]}
                 >
-                  削除
+                  🗑
                 </button>
               )
               : null}
-            {archived() ? null : (
-              <button
-                type="button"
-                class="link link-hover text-xs ml-2"
-                mix={[on("click", () => {
-                  paletteFor = paletteFor === m.id ? null : m.id;
-                  handle.update();
-                })]}
-              >
-                ＋リアクション
-              </button>
-            )}
           </div>
           {m.reactions.length > 0 || paletteFor === m.id
             ? (
